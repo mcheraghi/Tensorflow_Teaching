@@ -88,13 +88,14 @@ print(result['accuracy'])  # the result variable is simply a dict of stats about
 
 
 pred_dicts = list(linear_est.predict(eval_input_fn))
-print(pred_dicts)
+print(pred_dicts[0])
+
 probs = pd.Series([pred['probabilities'][1] for pred in pred_dicts])
 
 plt.figure()
 probs.plot(kind='hist', bins=20, title='predicted probabilities')
 
-plt.show()
+#plt.show()
 
 
 
