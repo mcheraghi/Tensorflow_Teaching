@@ -1,3 +1,4 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,88 +15,131 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.layers.experimental import preprocessing
 
-print(tf.__version__)
 
+
+
+
+
+'''This specific dataset seperates flowers into 3 different classes of species.
+- Setosa
+- Versicolor
+- Virginica
+
+The information about each flower is the following.
+- sepal length
+- sepal width
+- petal length
+- petal width'''
 
 # -----Get the data from the archive
-dftrain = pd.read_csv('https://storage.googleapis.com/tf-datasets/titanic/train.csv') # training data
-dfeval = pd.read_csv('https://storage.googleapis.com/tf-datasets/titanic/eval.csv') # testing data
-y_train = dftrain.pop('survived')
-y_eval = dfeval.pop('survived')
+
+CSV_COLUMN_NAMES = ['SepalLength', 'SepalWidth', 'PetalLength', 'PetalWidth', 'Species']
+SPECIES = ['Setosa', 'Versicolor', 'Virginica']
+
+# Lets define some constants to help us later on
+train_path = tf.keras.utils.get_file(
+    "iris_training.csv", "https://storage.googleapis.com/download.tensorflow.org/data/iris_training.csv")
+test_path = tf.keras.utils.get_file(
+    "iris_test.csv", "https://storage.googleapis.com/download.tensorflow.org/data/iris_test.csv")
+
+train = pd.read_csv(train_path, names=CSV_COLUMN_NAMES, header=0)
+test = pd.read_csv(test_path, names=CSV_COLUMN_NAMES, header=0)
+train.to_csv("train_classification.csv")
+test.to_csv("test_classification.csv")
+
+# Here we use keras (a module inside of TensorFlow) to grab our datasets and read them into a pandas dataframe
 
 
-print(dftrain.head())
-print(dftrain.describe())
-print(dftrain.shape)
-print(y_train.head())
+print(train.head())
 
-plt.figure()
-dftrain.age.hist(bins=30)
-
-plt.figure()
-dftrain.sex.value_counts().plot(kind='barh')
-
-plt.figure()
-dftrain['class'].value_counts().plot(kind='barh')
-
-plt.figure()
-pd.concat([dftrain, y_train], axis=1).groupby('sex').survived.mean().plot(kind='barh').set_xlabel('% survive')
-
-
-
-# -----Converting the feature columns into numeric
-
-CATEGORICAL_COLUMNS = ['sex', 'n_siblings_spouses', 'parch', 'class', 'deck',
-                       'embark_town', 'alone']
-NUMERIC_COLUMNS = ['age', 'fare']
-
-feature_columns = []
-for feature_name in CATEGORICAL_COLUMNS:
-  vocabulary = dftrain[feature_name].unique()  # gets a list of all unique values from given feature column
-  feature_columns.append(tf.feature_column.categorical_column_with_vocabulary_list(feature_name, vocabulary))
-
-for feature_name in NUMERIC_COLUMNS:
-  feature_columns.append(tf.feature_column.numeric_column(feature_name, dtype=tf.float32))
-
-print(feature_columns) #This list helps the model to conert the data
+train_y = train.pop('Species')
+test_y = test.pop('Species')
+print(train.head()) # the species column is now go
+print(train.shape)
 
 
 
 # ----- Preparing the input data
+def input_fn(features, labels, training=True, batch_size=256):
+    # Convert the inputs to a Dataset.
+    dataset = tf.data.Dataset.from_tensor_slices((dict(features), labels))
 
-def make_input_fn(data_df, label_df, num_epochs=10, shuffle=True, batch_size=32): #This function is compied from tf website, num_epochs means ho many times the whole data reached, batch_size, each batch
-  def input_function():  							# inner function, this will be returned
-    ds = tf.data.Dataset.from_tensor_slices((dict(data_df), label_df))  	# create tf.data.Dataset object with data and its label
-    if shuffle:
-      ds = ds.shuffle(1000)  # randomize order of data
-    ds = ds.batch(batch_size).repeat(num_epochs)  # split dataset into batches of 32 and repeat process for number of epochs
-    return ds  # return a batch of the dataset
-  return input_function  # return a function object for use
-
-train_input_fn = make_input_fn(dftrain, y_train)  # here we will call the input_function that was returned to us to get a dataset object we can feed to the model
-eval_input_fn = make_input_fn(dfeval, y_eval, num_epochs=1, shuffle=False)
+    # Shuffle and repeat if you are in training mode.
+    if training:
+        dataset = dataset.shuffle(1000).repeat()
+    
+    return dataset.batch(batch_size)
 
 
 # ----- Model and train
 
-linear_est = tf.estimator.LinearClassifier(feature_columns=feature_columns) #The list created above, "feature_columns" is used here
-linear_est.train(train_input_fn)  # train
-result = linear_est.evaluate(eval_input_fn)  # get model metrics/stats by testing on tetsing data
-
-#clear_output()  # clears consoke output
-print(result['accuracy'])  # the result variable is simply a dict of stats about our model
-
+# Feature columns describe how to use the input.
+my_feature_columns = []
+for key in train.keys():
+    my_feature_columns.append(tf.feature_column.numeric_column(key=key))
+print(my_feature_columns)
 
 
-pred_dicts = list(linear_est.predict(eval_input_fn))
-print(pred_dicts)
-probs = pd.Series([pred['probabilities'][1] for pred in pred_dicts])
+# Build a DNN with 2 hidden layers with 30 and 10 hidden nodes each.
+classifier = tf.estimator.DNNClassifier(
+    feature_columns=my_feature_columns,
+    # Two hidden layers of 30 and 10 nodes respectively.
+    hidden_units=[30, 10],
+    # The model must choose between 3 classes.
+    n_classes=3)
+    
+    
+classifier.train(input_fn=lambda: input_fn(train, train_y, training=True), steps=5000)
+# We include a lambda to avoid creating an inner function previously in 3_ML_Tensorflow ... model
 
-plt.figure()
-probs.plot(kind='hist', bins=20, title='predicted probabilities')
+# ----- Evaluation
 
-plt.show()
+eval_result = classifier.evaluate(input_fn = lambda:input_fn(test,test_y,training = False))
 
 
+def input_fn(features, batch_size=256):
+    # Convert the inputs to a Dataset without labels.
+    return tf.data.Dataset.from_tensor_slices(dict(features)).batch(batch_size)
+    
+expected = ['Setosa', 'Versicolor', 'Virginica']
+predict_x = {
+    'SepalLength': [5.1, 5.9, 6.9],
+    'SepalWidth': [3.3, 3.0, 3.1],
+    'PetalLength': [1.7, 4.2, 5.4],
+    'PetalWidth': [0.5, 1.5, 2.1],
+}
+
+
+predictions = classifier.predict(input_fn=lambda: input_fn(predict_x))
+for pred_dict in predictions:
+    class_id = pred_dict['class_ids'][0]
+    probability = pred_dict['probabilities'][class_id]
+
+    print('Prediction is "{}" ({:.1f}%)'.format(
+        SPECIES[class_id], 100 * probability))
+
+
+
+
+# ----- The code below is written to get the data from terminal and run the model for prediction
+features = ['SepalLength', 'SepalWidth', 'PetalLength', 'PetalWidth']
+predict = {}
+
+print("Please type numeric values as prompted.")
+for feature in features:
+  valid = True
+  while valid: 
+    val = input(feature + ": ")
+    if not val.isdigit(): valid = False
+
+  predict[feature] = [float(val)]
+
+predictions = classifier.predict(input_fn=lambda: input_fn(predict))
+for pred_dict in predictions:
+    class_id = pred_dict['class_ids'][0]
+    probability = pred_dict['probabilities'][class_id]
+
+    print('Prediction is "{}" ({:.1f}%)'.format(
+        SPECIES[class_id], 100 * probability))
 
 
